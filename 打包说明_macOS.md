@@ -171,16 +171,21 @@ multiple attempts` 失败。**同一次运行里 Intel 作业是正常成功的*
 
 **想拿到 arm64 版本可以这样做**（按推荐程度排序）：
 
-1. **换个时段重跑**。容量随时段波动，避开欧美工作日白天（UTC 14:00–24:00）
-   成功率明显更高。重跑方式：Actions 页面进入对应运行 → 右上角 `Re-run jobs`
+1. **只用 Intel 版（当前推荐）**。Apple Silicon 的 Mac 能通过 Rosetta 2 运行
+   Intel 应用，首次打开时系统会提示安装 Rosetta，装完即可正常使用。对本程序
+   （Tkinter 桌面应用，无重度计算）来说，Rosetta 的性能损耗基本无感。
+2. **换个时段重跑**。容量随时段波动，避开欧美工作日白天（UTC 14:00–24:00）
+   成功率更高。重跑方式：Actions 页面进入对应运行 → 右上角 `Re-run jobs`
    → `Re-run failed jobs`。
-2. **改用 `macos-26`**。把矩阵里的 `macos-15` 换成 `macos-26`，这是更新的镜像，
-   有时空闲机器更多。
-3. **只出 Intel 版**。Apple Silicon 的 Mac 能通过 Rosetta 2 运行 Intel 应用，
-   首次打开时系统会提示安装 Rosetta，装完即可正常使用。对本程序（Tkinter 桌面应用，
-   无重度计算）来说，Rosetta 的性能损耗基本无感。
-4. **付费 xlarge runner**。`macos-15-xlarge` 是 M2 机器，容量独立于标准池，
-   但属于付费的 larger runner，按分钟计费。
+3. **本地 Mac 构建**。有 Mac 的话用 `JinbuYihaoAgent_mac.spec` 直接跑
+   `pyinstaller --noconfirm --clean JinbuYihaoAgent_mac.spec`，最快也最可控。
+4. **付费 xlarge runner**。`macos-15-xlarge` / `macos-26-xlarge` 是 M2 机器，
+   容量独立于标准池，但属于付费的 larger runner，按分钟计费。
+
+> **实测补充（2026-11-18，共 5 轮构建）**：`macos-15` 与 `macos-26` 的 arm64
+> 标准池**都试过，连续五轮全部拿不到机器**，每轮均在约 15 分钟后以同一错误失败。
+> **换镜像版本解决不了容量问题**，当前时段 arm64 标准池基本不可用。
+> 同一批运行里 Intel 作业**每轮都成功**，进一步确认是平台容量而非配置问题。
 
 ### Intel 镜像的生命周期
 
