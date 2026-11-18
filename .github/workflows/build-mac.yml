@@ -40,7 +40,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-15
+          # arm64 换 macos-26：macos-15 的 arm64 池连续四轮都拿不到机器
+          #（2026-11-18 实测），macos-26 是更新的镜像，容量池不同。
+          - runner: macos-26
             arch: arm64
           - runner: macos-15-intel
             arch: x86_64
