@@ -28,6 +28,14 @@ jobs:
     #                Intel → macos-15-intel / macos-26-intel
     #   这里固定 15 而不用 macos-latest：latest 是浮动别名（现指向 26），
     #   出正式安装包的流水线不该让 OS 版本在没有提交的情况下自己变。
+    #
+    # arm64 容量问题（实测 2026-11-18）：macOS arm64 托管 runner 容量紧张，
+    #   GitHub 会提示 "Due to capacity constraints..."，排队约 15 分钟后
+    #   以 "The job was not acquired by Runner of type hosted" 失败。
+    #   这是平台侧容量问题，不是配置错误——Intel 作业同一次运行里是成功的。
+    #   对策：① fail-fast: false 让 Intel 不被 arm64 拖垮；
+    #        ② arm64 单独加 continue-on-error，拿不到机器时整体仍算成功；
+    #        ③ 加大超时，给排队留足时间。
     strategy:
       fail-fast: false
       matrix:
@@ -39,6 +47,9 @@ jobs:
 
     runs-on: ${{ matrix.runner }}
     name: build-${{ matrix.arch }}
+    # arm64 拿不到 runner 时不阻断整条流水线与 Release
+    continue-on-error: ${{ matrix.arch == 'arm64' }}
+    timeout-minutes: 90
 
     steps:
       - name: 检出代码

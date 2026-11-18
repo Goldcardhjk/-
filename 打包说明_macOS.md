@@ -152,5 +152,37 @@ JINBU_DATA_DIR=~/Library/Application\ Support/JinbuYihao \
 - CI runner 没有图形登录会话，**无法在云端真实启动窗口做视觉验收**。工作流做的是
   结构冒烟 + 导入冒烟；界面实际效果需要在真机上首次运行时确认。
 - 未做 Apple 公证，分发给他人时需引导对方右键打开。
-- Intel 版（x86_64）在 `macos-13` runner 上构建。GitHub 已宣布逐步下线 macOS 13，
-  届时可改用 `macos-14` + `--target-arch universal2` 出通用包。
+
+### arm64（Apple Silicon）构建的容量问题（实测 2026-11-18）
+
+GitHub 的 **macOS arm64 托管 runner 容量紧张**。实际跑下来，arm64 作业会提示：
+
+> Due to capacity constraints, jobs targeting macOS arm64 runners may experience longer queue times.
+
+排队约 15 分钟后以 `The job was not acquired by Runner of type hosted even after
+multiple attempts` 失败。**同一次运行里 Intel 作业是正常成功的**，所以这不是配置问题，
+而是平台侧没有空闲机器。
+
+工作流已做如下处理，保证 Intel 版始终能正常出包与发 Release：
+
+- `fail-fast: false` —— arm64 失败不连带取消 Intel 作业
+- arm64 作业加 `continue-on-error` —— 拿不到机器时整体不算失败
+- `timeout-minutes: 90` —— 给排队留足时间
+
+**想拿到 arm64 版本可以这样做**（按推荐程度排序）：
+
+1. **换个时段重跑**。容量随时段波动，避开欧美工作日白天（UTC 14:00–24:00）
+   成功率明显更高。重跑方式：Actions 页面进入对应运行 → 右上角 `Re-run jobs`
+   → `Re-run failed jobs`。
+2. **改用 `macos-26`**。把矩阵里的 `macos-15` 换成 `macos-26`，这是更新的镜像，
+   有时空闲机器更多。
+3. **只出 Intel 版**。Apple Silicon 的 Mac 能通过 Rosetta 2 运行 Intel 应用，
+   首次打开时系统会提示安装 Rosetta，装完即可正常使用。对本程序（Tkinter 桌面应用，
+   无重度计算）来说，Rosetta 的性能损耗基本无感。
+4. **付费 xlarge runner**。`macos-15-xlarge` 是 M2 机器，容量独立于标准池，
+   但属于付费的 larger runner，按分钟计费。
+
+### Intel 镜像的生命周期
+
+GitHub 已表示 `macos-15-intel` 大概率是**最后一个 Intel 镜像**。长期看仍需迁到
+arm64，或改用 `--target-arch universal2` 出通用包。
