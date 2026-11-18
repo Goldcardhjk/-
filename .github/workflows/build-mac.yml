@@ -16,15 +16,20 @@ on:
 
 jobs:
   build:
-    # macos-14 及以上是 Apple Silicon（arm64）；
-    # 想同时出 Intel 版就把 matrix 的 macos-13 一起打开。
+    # Runner 标签说明（2026-11 现状）：
+    #   macos-14 已于 2026-11-02 退役，macos-13 更早退役，再用会直接报
+    #   "The configuration 'macos-14-arm64-us-default' is not supported"。
+    #   当前在用标签：arm64 → macos-15 / macos-26 / macos-latest
+    #                Intel → macos-15-intel / macos-26-intel
+    #   这里固定 15 而不用 macos-latest：latest 是浮动别名（现指向 26），
+    #   出正式安装包的流水线不该让 OS 版本在没有提交的情况下自己变。
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-15
             arch: arm64
-          - runner: macos-13
+          - runner: macos-15-intel
             arch: x86_64
 
     runs-on: ${{ matrix.runner }}
