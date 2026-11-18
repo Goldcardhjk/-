@@ -14,6 +14,11 @@ on:
     tags:
       - 'v*'
 
+# 创建 Release 需要写 contents 权限。默认的 GITHUB_TOKEN 在很多仓库里是
+# 只读的，不声明就会报 "Resource not accessible by integration"。
+permissions:
+  contents: write
+
 jobs:
   build:
     # Runner 标签说明（2026-11 现状）：
@@ -37,10 +42,10 @@ jobs:
 
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: 安装 Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           # 用 python.org 的官方构建，它自带 Tk 8.6。
           # macOS 系统内置的 Tcl/Tk 8.5 有已知渲染缺陷，
@@ -154,7 +159,7 @@ jobs:
           echo "DMG_NAME=${NAME}" >> $GITHUB_ENV
 
       - name: 上传产物
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ env.DMG_NAME }}
           path: ${{ env.DMG_NAME }}.dmg
