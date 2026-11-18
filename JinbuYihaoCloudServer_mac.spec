@@ -8,6 +8,10 @@ import os
 
 ROOT = os.path.abspath(SPECPATH)                       # noqa: F821
 
+# 与主程序一致：目标架构由 JINBU_TARGET_ARCH 指定，
+# 否则 arm64 的 DMG 里会混进一个 Intel 架构的服务端可执行文件。
+TARGET_ARCH = os.environ.get("JINBU_TARGET_ARCH") or None
+
 a = Analysis(                                          # noqa: F821
     [os.path.join(ROOT, 'cloud_server.py')],
     pathex=[ROOT],
@@ -39,7 +43,7 @@ exe = EXE(                                             # noqa: F821
     console=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch=None,
+    target_arch=TARGET_ARCH,
     codesign_identity=None,
     entitlements_file=None,
 )

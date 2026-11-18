@@ -153,39 +153,43 @@ JINBU_DATA_DIR=~/Library/Application\ Support/JinbuYihao \
   结构冒烟 + 导入冒烟；界面实际效果需要在真机上首次运行时确认。
 - 未做 Apple 公证，分发给他人时需引导对方右键打开。
 
-### arm64（Apple Silicon）构建的容量问题（实测 2026-11-18）
+### arm64（Apple Silicon）：改用 Intel runner 交叉构建
 
-GitHub 的 **macOS arm64 托管 runner 容量紧张**。实际跑下来，arm64 作业会提示：
+GitHub 的 **macOS arm64 托管 runner 容量极度紧张**。实测连续五轮（`macos-15`
+与 `macos-26` 都试过）全部拿不到机器，每轮排队约 15 分钟后失败：
 
 > Due to capacity constraints, jobs targeting macOS arm64 runners may experience longer queue times.
+> The job was not acquired by Runner of type hosted even after multiple attempts
 
-排队约 15 分钟后以 `The job was not acquired by Runner of type hosted even after
-multiple attempts` 失败。**同一次运行里 Intel 作业是正常成功的**，所以这不是配置问题，
-而是平台侧没有空闲机器。
+**换镜像版本解决不了** —— 这是平台侧没有空闲机器，同一批运行里 Intel 作业每轮都成功。
 
-工作流已做如下处理，保证 Intel 版始终能正常出包与发 Release：
+**现在的解法：两个架构都在 Intel runner 上构建。**
 
-- `fail-fast: false` —— arm64 失败不连带取消 Intel 作业
-- arm64 作业加 `continue-on-error` —— 拿不到机器时整体不算失败
-- `timeout-minutes: 90` —— 给排队留足时间
+`actions/setup-python` 装的是 python.org 的 **universal2** 构建，二进制里同时含
+`x86_64` 与 `arm64` 两个切片。PyInstaller 官方支持从 universal2 环境里抽出指定
+架构的单架构应用（文档 *macOS multi-arch support* 一节：「single-arch application
+created using universal2 python」）。工作流通过 `JINBU_TARGET_ARCH` 环境变量把
+目标架构传给 spec 的 `target_arch=`，于是：
 
-**想拿到 arm64 版本可以这样做**（按推荐程度排序）：
+| 作业 | runner | 构建方式 |
+|---|---|---|
+| build-x86_64 | `macos-15-intel` | 原生构建 |
+| build-arm64 | `macos-15-intel` | universal2 Python + `target_arch='arm64'` 交叉构建 |
 
-1. **只用 Intel 版（当前推荐）**。Apple Silicon 的 Mac 能通过 Rosetta 2 运行
-   Intel 应用，首次打开时系统会提示安装 Rosetta，装完即可正常使用。对本程序
-   （Tkinter 桌面应用，无重度计算）来说，Rosetta 的性能损耗基本无感。
-2. **换个时段重跑**。容量随时段波动，避开欧美工作日白天（UTC 14:00–24:00）
-   成功率更高。重跑方式：Actions 页面进入对应运行 → 右上角 `Re-run jobs`
-   → `Re-run failed jobs`。
-3. **本地 Mac 构建**。有 Mac 的话用 `JinbuYihaoAgent_mac.spec` 直接跑
+这样完全不依赖 arm64 托管机器，两个包都能稳定产出。
+
+**交叉构建的强制校验**：工作流里有一步专门用 `lipo -archs` 核对产物架构与目标是否
+一致，不一致直接让构建失败。交叉构建最容易出的问题就是「以为出了 arm64，实际还是
+x86_64」，这一步确保错架构的包绝不会被发出去。
+
+**备选方案**（上面的方案失效时）：
+
+1. **本地 Mac 构建**。有 Mac 的话直接跑
    `pyinstaller --noconfirm --clean JinbuYihaoAgent_mac.spec`，最快也最可控。
-4. **付费 xlarge runner**。`macos-15-xlarge` / `macos-26-xlarge` 是 M2 机器，
-   容量独立于标准池，但属于付费的 larger runner，按分钟计费。
-
-> **实测补充（2026-11-18，共 5 轮构建）**：`macos-15` 与 `macos-26` 的 arm64
-> 标准池**都试过，连续五轮全部拿不到机器**，每轮均在约 15 分钟后以同一错误失败。
-> **换镜像版本解决不了容量问题**，当前时段 arm64 标准池基本不可用。
-> 同一批运行里 Intel 作业**每轮都成功**，进一步确认是平台容量而非配置问题。
+2. **Rosetta 2 跑 Intel 版**。Apple Silicon 能通过 Rosetta 运行 Intel 应用，
+   对本程序（Tkinter 桌面应用，无重度计算）性能损耗基本无感。
+3. **付费 xlarge runner**。`macos-15-xlarge` / `macos-26-xlarge` 是 M2 机器，
+   容量独立于标准池，按分钟计费。
 
 ### Intel 镜像的生命周期
 

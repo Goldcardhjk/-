@@ -21,52 +21,54 @@ permissions:
 
 jobs:
   build:
-    # Runner 标签说明（2026-11 现状）：
-    #   macos-14 已于 2026-11-02 退役，macos-13 更早退役，再用会直接报
-    #   "The configuration 'macos-14-arm64-us-default' is not supported"。
-    #   当前在用标签：arm64 → macos-15 / macos-26 / macos-latest
-    #                Intel → macos-15-intel / macos-26-intel
-    #   这里固定 15 而不用 macos-latest：latest 是浮动别名（现指向 26），
-    #   出正式安装包的流水线不该让 OS 版本在没有提交的情况下自己变。
+    # 为什么两个架构都跑在 Intel runner 上（2026-11-18 实测结论）：
     #
-    # arm64 容量问题（实测 2026-11-18）：macOS arm64 托管 runner 容量紧张，
-    #   GitHub 会提示 "Due to capacity constraints..."，排队约 15 分钟后
-    #   以 "The job was not acquired by Runner of type hosted" 失败。
-    #   这是平台侧容量问题，不是配置错误——Intel 作业同一次运行里是成功的。
-    #   对策：① fail-fast: false 让 Intel 不被 arm64 拖垮；
-    #        ② arm64 单独加 continue-on-error，拿不到机器时整体仍算成功；
-    #        ③ 加大超时，给排队留足时间。
+    #   macOS arm64 托管 runner 容量极度紧张。macos-15 与 macos-26 的 arm64
+    #   标准池连续五轮都拿不到机器，每轮排队约 15 分钟后以
+    #   "The job was not acquired by Runner of type hosted" 失败，并伴随
+    #   "Due to capacity constraints..." 提示。换镜像版本解决不了。
+    #   （macos-14 / macos-13 已分别于 2026-11-02 及更早退役，不能再用。）
+    #
+    #   解法：改成在 Intel runner 上交叉构建 arm64。
+    #   actions/setup-python 装的是 python.org 的 universal2 构建，二进制里
+    #   同时含 x86_64 与 arm64 切片，PyInstaller 支持用 --target-arch 从
+    #   universal2 环境里抽出指定架构的单架构应用（官方文档 macOS multi-arch
+    #   support 一节明确支持 "single-arch application created using
+    #   universal2 python"）。这样完全不依赖 arm64 托管机器。
+    #
+    # 两个架构都跑在 Intel runner 上：
+    #   x86_64 —— 原生构建
+    #   arm64  —— universal2 Python + --target-arch arm64 交叉构建
+    # 这样彻底绕开 arm64 托管机器容量不足的问题（实测连续五轮拿不到机器）。
     strategy:
       fail-fast: false
       matrix:
         include:
-          # arm64 换 macos-26：macos-15 的 arm64 池连续四轮都拿不到机器
-          #（2026-11-18 实测），macos-26 是更新的镜像，容量池不同。
-          - runner: macos-26
-            arch: arm64
-          - runner: macos-15-intel
-            arch: x86_64
+          - arch: x86_64
+          - arch: arm64
 
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-15-intel
     name: build-${{ matrix.arch }}
-    # arm64 拿不到 runner 时不阻断整条流水线与 Release
-    continue-on-error: ${{ matrix.arch == 'arm64' }}
     timeout-minutes: 90
 
     steps:
       - name: 检出代码
         uses: actions/checkout@v5
 
-      - name: 安装 Python
+      - name: 安装 Python（universal2，含 arm64 切片）
         uses: actions/setup-python@v6
         with:
-          # 用 python.org 的官方构建，它自带 Tk 8.6。
-          # macOS 系统内置的 Tcl/Tk 8.5 有已知渲染缺陷，
-          # 圆角卡片和透明头像会出现锯齿与黑边。
+          # 必须用 python.org 的 universal2 构建：
+          #   1. 自带 Tk 8.6（系统内置的 8.5 有渲染缺陷，圆角卡片和
+          #      透明头像会出现锯齿黑边）
+          #   2. 二进制里同时含 x86_64 与 arm64 切片，PyInstaller 才能
+          #      用 --target-arch arm64 抽出 arm64 版本
           python-version: '3.12'
+          architecture: 'x64'
 
-      - name: 确认 Tk 版本（8.6 以下直接失败，避免出一个界面是坏的包）
+      - name: 确认 Tk 版本与 Python 架构切片
         run: |
+          set -e
           python -c "
           import tkinter, sys
           v = tkinter.TkVersion
@@ -75,6 +77,10 @@ jobs:
           if v < 8.6:
               sys.exit('Tk 版本过低（%s），界面渲染会出问题' % v)
           "
+          echo '--- Python 可执行文件架构 ---'
+          python -c "import sys; print(sys.executable)"
+          lipo -archs "$(python -c 'import sys; print(sys.executable)')" || \
+            file "$(python -c 'import sys; print(sys.executable)')"
 
       - name: 安装依赖
         run: |
@@ -98,12 +104,17 @@ jobs:
           ls -la build_mac/app_icon.icns
 
       - name: 打包 .app
+        env:
+          JINBU_TARGET_ARCH: ${{ matrix.arch }}
         run: |
           set -e
+          echo "目标架构：$JINBU_TARGET_ARCH"
           pyinstaller --noconfirm --clean JinbuYihaoAgent_mac.spec
           ls -la dist/
 
       - name: 打包云端服务（命令行可执行）
+        env:
+          JINBU_TARGET_ARCH: ${{ matrix.arch }}
         run: |
           set -e
           pyinstaller --noconfirm --clean JinbuYihaoCloudServer_mac.spec
@@ -117,8 +128,6 @@ jobs:
           test -f "$APP/Contents/Info.plist" || { echo "缺 Info.plist"; exit 1; }
           BIN="$APP/Contents/MacOS/JinbuYihaoAgent"
           test -x "$BIN" || { echo "缺可执行文件"; exit 1; }
-          echo "--- 架构 ---"
-          file "$BIN"
           echo "--- UI 资源是否随包 ---"
           find "$APP" -path "*images/ui/*" -name "*.png" | head -3
           echo "--- Info.plist 关键项 ---"
@@ -126,6 +135,26 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :NSHighResolutionCapable" "$APP/Contents/Info.plist"
           echo "--- 体积 ---"
           du -sh "$APP"
+
+      - name: 校验产物架构与目标一致（交叉构建必查）
+        run: |
+          set -e
+          BIN="dist/进步壹号.app/Contents/MacOS/JinbuYihaoAgent"
+          echo "--- file ---"
+          file "$BIN"
+          ARCHS="$(lipo -archs "$BIN")"
+          echo "实际架构：$ARCHS"
+          echo "期望架构：${{ matrix.arch }}"
+          # 交叉构建最容易出的问题就是「以为出了 arm64，其实还是 x86_64」，
+          # 这里不一致直接让构建失败，绝不把错架构的包发出去。
+          case "$ARCHS" in
+            *${{ matrix.arch }}*) echo "✓ 架构匹配" ;;
+            *) echo "✗ 架构不匹配：拿到 $ARCHS，要的是 ${{ matrix.arch }}"; exit 1 ;;
+          esac
+          echo "--- 随包的 Python 动态库架构抽查 ---"
+          find "dist/进步壹号.app" -name "*.so" -o -name "*.dylib" | head -5 | while read f; do
+            printf '%-60s %s\n' "$(basename "$f")" "$(lipo -archs "$f" 2>/dev/null || echo '?')"
+          done
 
       - name: 无界面环境下的导入冒烟
         # CI runner 没有登录态图形会话，不能真正弹窗，
@@ -148,9 +177,15 @@ jobs:
         # 不需要开发者账号。ad-hoc 签名能让 .app 在本机正常启动，
         # 但分发给别人时对方仍需右键「打开」绕过一次 Gatekeeper。
         # 要做到双击直接开，需要付费账号做 codesign + notarize。
+        #
+        # 注意：交叉构建出的 arm64 包在 Intel 机器上同样可以签名，
+        # codesign 只改签名段，不执行代码，与当前机器架构无关。
         run: |
+          set -e
           codesign --force --deep --sign - "dist/进步壹号.app"
           codesign --verify --verbose "dist/进步壹号.app" || true
+          echo "--- 签名后架构复核（签名不应改变架构）---"
+          lipo -archs "dist/进步壹号.app/Contents/MacOS/JinbuYihaoAgent"
 
       - name: 制作 DMG
         run: |

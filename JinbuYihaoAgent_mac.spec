@@ -23,6 +23,11 @@ import os
 ROOT = os.path.abspath(SPECPATH)                       # noqa: F821
 ICON = os.path.join(ROOT, "build_mac", "app_icon.icns")
 
+# 目标架构由环境变量传入（CI 里按矩阵设置）。
+#   x86_64 / arm64 / universal2 / 空=跟随当前机器
+# 在 Intel runner 上配 universal2 Python 时，设 arm64 即可交叉出 arm64 包。
+TARGET_ARCH = os.environ.get("JINBU_TARGET_ARCH") or None
+
 a = Analysis(                                          # noqa: F821
     [os.path.join(ROOT, 'main.py')],
     pathex=[ROOT],
@@ -53,7 +58,7 @@ exe = EXE(                                             # noqa: F821
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=True,                               # 支持 Finder 拖拽文件打开
-    target_arch=None,                                  # 跟随 runner 架构
+    target_arch=TARGET_ARCH,                           # 见文件头部说明
     codesign_identity=None,
     entitlements_file=None,
     icon=ICON if os.path.exists(ICON) else None,
