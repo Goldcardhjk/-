@@ -120,6 +120,40 @@ jobs:
           python -m pip list 2>/dev/null | grep -iE "pillow|pyinstaller|segno"
           true
 
+      - name: 预检：所有将被收集的扩展模块是否都含目标架构切片
+        # PyInstaller 对 python 扩展模块（.so）做严格架构校验，
+        # 只要有一个缺目标切片就直接中止构建，且错误信息淹没在长日志里。
+        # 这里提前把实际情况打出来，缺谁一目了然。
+        env:
+          JINBU_TARGET_ARCH: ${{ matrix.arch }}
+        run: |
+          python - "$JINBU_TARGET_ARCH" <<'PY'
+          import glob, os, subprocess, sys, sysconfig
+          want = sys.argv[1]
+          roots = {
+              "stdlib-ext": sysconfig.get_paths()["stdlib"] + "/lib-dynload",
+              "site-packages": sysconfig.get_paths()["purelib"],
+          }
+          bad, total = [], 0
+          for tag, root in roots.items():
+              for f in glob.glob(os.path.join(root, "**", "*.so"), recursive=True):
+                  total += 1
+                  try:
+                      a = subprocess.run(["lipo", "-archs", f], capture_output=True,
+                                         text=True).stdout.split()
+                  except Exception:
+                      continue
+                  if a and want not in a:
+                      bad.append((tag, os.path.relpath(f, root), " ".join(a)))
+          print("扫描 %d 个扩展模块，目标架构 =%s" % (total, want))
+          if bad:
+              print("\n!! 以下 %d 个缺少 %s 切片：" % (len(bad), want))
+              for tag, name, archs in bad[:40]:
+                  print("   [%s] %-52s 实际: %s" % (tag, name, archs))
+          else:
+              print("全部扩展模块都含 %s 切片" % want)
+          PY
+
       - name: 生成 .icns 应用图标
         run: |
           set -e
