@@ -1,0 +1,87 @@
+# ===================== 密钥与私密配置（绝不入库）=====================
+_keys/
+pay_config.json
+pay_config.*.json
+llm_config.json
+cloud_client.json
+data/cloud_session.json
+
+# ===================== 用户数据（含真实人物资料）=====================
+data/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# ===================== 打包产物 =====================
+dist/
+dist_v0*/
+build/
+build_pyi/
+build_v0*/
+build_mac/
+_build_v0*/
+_dist_v0*/
+_out_v0*/
+*.exe
+*.dmg
+*.app/
+
+# ===================== 虚拟环境与依赖缓存 =====================
+.venv/
+.pipcache/
+_pylibs/
+.playwright-cli/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# ===================== 临时目录与历史备份 =====================
+_tmp/
+.tmp/
+_trash_v0*/
+*.bak
+*.orig
+
+# ===================== 冒烟/验收的隔离运行目录 =====================
+s2_smoke_*/
+smoke7_*/
+smokep_*/
+smoke_ui_*/
+v05_smoke_*/
+
+# ===================== 大体积素材（不进仓库，太大）=====================
+# ComfyUI 生成的未处理设计原图（18MB）：只是 prep_ui_assets.py 的输入，
+# 程序运行只读 images/ui/ 的成品，原图可由 tools/gen_ui_assets.py 重新生成
+images/ui_raw/
+
+# 演示片源素材、录制帧、配音 wav、成片 mp4 合计数 GB
+进步壹号发布视频/
+录屏/
+*.mp4
+*.wav
+*.mov
+
+# 比赛提交包（内含 exe 与生产配置）
+进步壹号_MiniMax黑客松_提交/
+进步壹号_Payathon提交/
+PAYATHON提交材料/
+开通截图/
+
+# ===================== 根目录下的调试散图与日志 =====================
+# 历史调试截图：_v0xx_*.png / _crop_*.png / _cmp_*.png 等
+# 用 /_ 前缀限定只匹配仓库根目录，避免误伤子目录里的 _xxx 文件
+/_*.png
+/_*.txt
+/_*.py
+*.log
+
+# 手册的中间脚本与抓图（成品 docx 保留）
+手册_v070/shots/
+手册_v070/_rawframes/
+发布封面_进步壹号Agent.png
+
+# 比赛提交材料与历史流水产物（与构建无关）
+_v069/
+网盘提交_工业文化大赛/
+output/

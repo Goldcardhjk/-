@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>订单支付 · 进步壹号 Agent</title>
+<meta name="description" content="进步壹号 Agent 积分包订单支付页。">
+<link rel="icon" href="assets/app-icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="index.html">
+      <img src="assets/app-icon.png" alt="进步壹号 Agent">
+      <span>进步壹号 Agent<small>人际关系管理 · 桌面版</small></span>
+    </a>
+    <nav class="nav">
+      <a href="index.html#features">产品功能</a>
+      <a href="pricing.html">积分价格</a>
+      <a class="btn btn-ghost" href="pricing.html">返回价格页</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="checkout">
+    <div class="card">
+      <h2 style="margin:0 0 4px; font-size:22px;">确认订单</h2>
+      <p style="margin:0 0 18px; color:#6b7280; font-size:14px;">请核对以下信息后再付款</p>
+
+      <div class="order-line"><span>商品</span><span id="plan-name">体验积分包</span></div>
+      <div class="order-line"><span>积分数量</span><span id="plan-points">100 积分</span></div>
+      <div class="order-line"><span>商户订单号</span><span id="order-no" style="font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px;">—</span></div>
+      <div class="order-line"><span>购买账号</span><span>当前登录账号</span></div>
+
+      <div class="order-total">
+        <span style="color:#6b7280;">应付金额</span>
+        <b>¥<span id="plan-price">0.01</span></b>
+      </div>
+
+      <div class="paybox">
+        <div class="brandline"><span class="dot"></span>支付宝</div>
+        <div class="qr"></div>
+        <p>请使用支付宝扫描二维码完成付款</p>
+      </div>
+
+      <div class="notice">
+        <b>支付通道正在开通中</b>
+        本页面为展示页面，不会产生任何扣款。通道开通后，此处将跳转到支付宝收银台完成真实付款，付款成功积分立即计入当前账号。
+      </div>
+
+      <div style="margin-top:18px; display:flex; gap:10px;">
+        <a class="btn btn-ghost" href="pricing.html" style="flex:1;">返回改选</a>
+        <a class="btn btn-primary" href="index.html" style="flex:1;">回到首页</a>
+      </div>
+    </div>
+
+    <p style="text-align:center; font-size:13px; color:#6b7280; margin-top:18px;">
+      付款遇到问题？联系客服邮箱 service@jbyh-agent.cn，附上商户订单号，我们会尽快处理。
+    </p>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>进步壹号 Agent</span>
+    <span class="sep"></span>
+    <span>个人开发者 · 广州</span>
+    <span class="sep"></span>
+    <span>客服邮箱：service@jbyh-agent.cn</span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var plans = {
+    starter:  { name: "体验积分包", points: 100,  price: "0.01" },
+    standard: { name: "标准积分包", points: 500,  price: "9.90" },
+    pro:      { name: "专业积分包", points: 2000, price: "29.90" }
+  };
+  var key = new URLSearchParams(location.search).get("plan") || "starter";
+  var p = plans[key] || plans.starter;
+
+  document.getElementById("plan-name").textContent = p.name;
+  document.getElementById("plan-points").textContent = p.points + " 积分";
+  document.getElementById("plan-price").textContent = p.price;
+
+  var d = new Date();
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+  var stamp = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) +
+              pad(d.getHours()) + pad(d.getMinutes());
+  var rand = String(Math.floor(Math.random() * 9000) + 1000);
+  document.getElementById("order-no").textContent = "JBYHP" + stamp + rand;
+})();
+</script>
+
+</body>
+</html>

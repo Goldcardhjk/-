@@ -1,0 +1,163 @@
+name: Build macOS App
+
+# 触发方式：
+#   1. 在 Actions 页面手动点 "Run workflow"（workflow_dispatch）
+#   2. 推一个 v 开头的 tag，例如 git tag v0.70 && git push origin v0.70
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（写进 .app 和产物名，如 0.70）'
+        required: false
+        default: '0.70'
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    # macos-14 及以上是 Apple Silicon（arm64）；
+    # 想同时出 Intel 版就把 matrix 的 macos-13 一起打开。
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-13
+            arch: x86_64
+
+    runs-on: ${{ matrix.runner }}
+    name: build-${{ matrix.arch }}
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          # 用 python.org 的官方构建，它自带 Tk 8.6。
+          # macOS 系统内置的 Tcl/Tk 8.5 有已知渲染缺陷，
+          # 圆角卡片和透明头像会出现锯齿与黑边。
+          python-version: '3.12'
+
+      - name: 确认 Tk 版本（8.6 以下直接失败，避免出一个界面是坏的包）
+        run: |
+          python -c "
+          import tkinter, sys
+          v = tkinter.TkVersion
+          print('TkVersion =', v)
+          print('TclVersion =', tkinter.TclVersion)
+          if v < 8.6:
+              sys.exit('Tk 版本过低（%s），界面渲染会出问题' % v)
+          "
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller pillow segno
+
+      - name: 生成 .icns 应用图标
+        run: |
+          set -e
+          mkdir -p build_mac/icon.iconset
+          SRC="images/ui/app_icon_512.png"
+          if [ ! -f "$SRC" ]; then SRC="images/ui/app_icon.png"; fi
+          echo "图标源文件：$SRC"
+          # iconutil 要求 iconset 里按固定命名提供各尺寸
+          for s in 16 32 64 128 256 512; do
+            sips -z $s $s     "$SRC" --out "build_mac/icon.iconset/icon_${s}x${s}.png"      >/dev/null
+            d=$((s*2))
+            sips -z $d $d     "$SRC" --out "build_mac/icon.iconset/icon_${s}x${s}@2x.png"   >/dev/null
+          done
+          iconutil -c icns build_mac/icon.iconset -o build_mac/app_icon.icns
+          ls -la build_mac/app_icon.icns
+
+      - name: 打包 .app
+        run: |
+          set -e
+          pyinstaller --noconfirm --clean JinbuYihaoAgent_mac.spec
+          ls -la dist/
+
+      - name: 打包云端服务（命令行可执行）
+        run: |
+          set -e
+          pyinstaller --noconfirm --clean JinbuYihaoCloudServer_mac.spec
+          ls -la dist/JinbuYihaoCloudServer || true
+
+      - name: 冒烟校验 .app 结构
+        run: |
+          set -e
+          APP="dist/进步壹号.app"
+          test -d "$APP" || { echo "没有产出 .app"; exit 1; }
+          test -f "$APP/Contents/Info.plist" || { echo "缺 Info.plist"; exit 1; }
+          BIN="$APP/Contents/MacOS/JinbuYihaoAgent"
+          test -x "$BIN" || { echo "缺可执行文件"; exit 1; }
+          echo "--- 架构 ---"
+          file "$BIN"
+          echo "--- UI 资源是否随包 ---"
+          find "$APP" -path "*images/ui/*" -name "*.png" | head -3
+          echo "--- Info.plist 关键项 ---"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleName" "$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :NSHighResolutionCapable" "$APP/Contents/Info.plist"
+          echo "--- 体积 ---"
+          du -sh "$APP"
+
+      - name: 无界面环境下的导入冒烟
+        # CI runner 没有登录态图形会话，不能真正弹窗，
+        # 但可以确认所有模块在 macOS 上 import 得通、字体解析落到苹方。
+        run: |
+          python -c "
+          import ui_base, images_util
+          print('UI_FONT =', ui_base.UI_FONT)
+          print('PIL 字体候选首项 =', images_util._FONT_CANDIDATES[0][0])
+          import os
+          ok = any(os.path.exists(p) for p, _ in images_util._FONT_CANDIDATES)
+          print('存在可用中文字体文件:', ok)
+          assert ok, 'macOS 上没有命中任何中文字体，卡片文字会变方块'
+          import db, llm, scoring, points, payment, greetings, gifts
+          import cloud_client, cloud_server, mcp_server
+          print('全部业务模块导入通过')
+          "
+
+      - name: 临时签名（ad-hoc）
+        # 不需要开发者账号。ad-hoc 签名能让 .app 在本机正常启动，
+        # 但分发给别人时对方仍需右键「打开」绕过一次 Gatekeeper。
+        # 要做到双击直接开，需要付费账号做 codesign + notarize。
+        run: |
+          codesign --force --deep --sign - "dist/进步壹号.app"
+          codesign --verify --verbose "dist/进步壹号.app" || true
+
+      - name: 制作 DMG
+        run: |
+          set -e
+          VER="${{ github.event.inputs.version || '0.70' }}"
+          NAME="进步壹号_v${VER}_macOS_${{ matrix.arch }}"
+          mkdir -p dmg_root
+          cp -R "dist/进步壹号.app" dmg_root/
+          ln -s /Applications dmg_root/Applications          # 拖拽安装的经典布局
+          if [ -f dist/JinbuYihaoCloudServer ]; then
+            mkdir -p dmg_root/云端服务
+            cp dist/JinbuYihaoCloudServer dmg_root/云端服务/
+          fi
+          cp 打包说明_macOS.md dmg_root/使用说明.md 2>/dev/null || true
+          hdiutil create -volname "进步壹号 v${VER}" \
+                         -srcfolder dmg_root -ov -format UDZO \
+                         "${NAME}.dmg"
+          ls -lh "${NAME}.dmg"
+          echo "DMG_NAME=${NAME}" >> $GITHUB_ENV
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DMG_NAME }}
+          path: ${{ env.DMG_NAME }}.dmg
+          retention-days: 30
+
+      - name: 打 tag 时自动发布 Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.DMG_NAME }}.dmg
+          generate_release_notes: true
