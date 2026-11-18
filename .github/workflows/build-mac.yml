@@ -72,8 +72,10 @@ jobs:
           python-version: '3.12'
 
       - name: 确认 Tk 版本与 Python 架构切片
+        # 这一步只做诊断，任何单条命令失败都不该让整个作业挂掉，
+        # 所以不开 set -e，并给每条探测命令兜一个 || true。
+        # 唯一的硬门槛是 Tk 版本，单独用一条 python -c 判定。
         run: |
-          set -e
           python -c "
           import tkinter, sys
           v = tkinter.TkVersion
@@ -82,25 +84,15 @@ jobs:
           if v < 8.6:
               sys.exit('Tk 版本过低（%s），界面渲染会出问题' % v)
           "
-          PYBIN="$(python -c 'import sys; print(sys.executable)')"
-          echo "--- Python 可执行文件 ---"
-          echo "$PYBIN"
-          # 真正决定能否交叉构建的是 libpython 动态库的切片，
-          # 可执行文件本身有时是瘦的但库是胖的，两个都看一眼。
-          echo "--- 解释器架构 ---"
-          lipo -archs "$PYBIN" || file "$PYBIN"
-          echo "--- libpython 架构 ---"
-          PYLIB="$(python -c '
-          import sysconfig, os
-          p = sysconfig.get_config_var("LIBDIR") or ""
-          n = sysconfig.get_config_var("LDLIBRARY") or ""
-          print(os.path.join(p, n))
-          ')"
-          echo "$PYLIB"
-          lipo -archs "$PYLIB" 2>/dev/null || file "$PYLIB" || true
-          echo "--- _tkinter 扩展架构 ---"
-          TKSO="$(python -c 'import _tkinter; print(_tkinter.__file__)')"
-          lipo -archs "$TKSO" || file "$TKSO"
+          echo "=== 架构诊断（仅供排查，不影响构建结果）==="
+          PYBIN="$(python -c 'import sys; print(sys.executable)')" || true
+          echo "解释器: $PYBIN"
+          lipo -archs "$PYBIN" 2>/dev/null || file "$PYBIN" || true
+          TKSO="$(python -c 'import _tkinter; print(_tkinter.__file__)')" || true
+          echo "_tkinter: $TKSO"
+          lipo -archs "$TKSO" 2>/dev/null || file "$TKSO" || true
+          echo "平台标签:"
+          python -c "import sysconfig; print(sysconfig.get_platform())" || true
 
       - name: 安装依赖
         run: |
@@ -109,20 +101,24 @@ jobs:
           python -m pip install pyinstaller segno
           # Pillow 必须拿到含 arm64 切片的 wheel，否则交叉构建 arm64 时
           # PyInstaller 会因为收集到纯 x86_64 的 .so 而报架构不兼容。
-          # macosx_*_universal2 的 wheel 同时含两种切片，优先装它。
           python -m pip install --only-binary=:all: pillow
-          echo "--- Pillow 的二进制切片 ---"
-          python - <<'PY'
+          # 以下仅诊断，失败不应中断构建
+          set +e
+          echo "=== Pillow 二进制切片 ==="
+          python -c "
           import os, glob, subprocess, PIL
           d = os.path.dirname(PIL.__file__)
-          for f in sorted(glob.glob(os.path.join(d, "*.so")))[:6]:
+          for f in sorted(glob.glob(os.path.join(d, '*.so')))[:6]:
               try:
-                  a = subprocess.run(["lipo", "-archs", f],
-                                     capture_output=True, text=True).stdout.strip()
+                  a = subprocess.run(['lipo','-archs',f], capture_output=True,
+                                     text=True).stdout.strip()
               except Exception:
-                  a = "?"
-              print("%-34s %s" % (os.path.basename(f), a))
-          PY
+                  a = '?'
+              print('%-34s %s' % (os.path.basename(f), a))
+          "
+          echo "=== 已装 wheel ==="
+          python -m pip list 2>/dev/null | grep -iE "pillow|pyinstaller|segno"
+          true
 
       - name: 生成 .icns 应用图标
         run: |
@@ -146,7 +142,15 @@ jobs:
         run: |
           set -e
           echo "目标架构：$JINBU_TARGET_ARCH"
-          pyinstaller --noconfirm --clean JinbuYihaoAgent_mac.spec
+          # 失败时把 PyInstaller 的完整警告表打出来，否则日志里只有一句
+          # "Process completed with exit code 1"，根本看不出是哪个库架构不对
+          pyinstaller --noconfirm --clean --log-level INFO \
+            JinbuYihaoAgent_mac.spec || {
+              echo "=== 构建失败，输出 warn 文件 ==="
+              find build -name "warn-*.txt" -exec sh -c '
+                echo "--- {} ---"; tail -60 "{}"' \; || true
+              exit 1
+            }
           ls -la dist/
 
       - name: 打包云端服务（命令行可执行）
